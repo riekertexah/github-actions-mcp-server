@@ -68,7 +68,16 @@ process.on('uncaughtException', (error: Error) => { // Type error
 logToFile('[MCP Server Log] Initializing GitHub Actions MCP Server...');
 
 // Restore auth logic
-const GITHUB_TOKEN = process.env.GITHUB_PERSONAL_ACCESS_TOKEN; // Restore env check
+// Allow token via CLI argument `--token=<token>` or fallback to env var
+let cliToken: string | undefined;
+for (const arg of process.argv) {
+  if (arg.startsWith('--token=')) {
+    cliToken = arg.substring('--token='.length);
+    break;
+  }
+}
+
+const GITHUB_TOKEN = cliToken || process.env.GITHUB_PERSONAL_ACCESS_TOKEN; // Restore env check
 if (!GITHUB_TOKEN) {
   logToFile('FATAL: GITHUB_PERSONAL_ACCESS_TOKEN environment variable is not set.');
   process.exit(1);
