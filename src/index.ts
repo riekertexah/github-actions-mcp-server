@@ -53,16 +53,35 @@ function logToFile(message: string) {
 }
 
 // Clear log file on startup
-fs.writeFileSync(logFilePath, '', 'utf8'); // Remove try/catch
-logToFile('[MCP Server Log] Log file cleared/initialized.'); // Add confirmation log
+// Ensure dist directory exists before logging
+const logDir = path.dirname(logFilePath);
+try {
+    if (!fs.existsSync(logDir)){
+        fs.mkdirSync(logDir, { recursive: true });
+    }
+    fs.writeFileSync(logFilePath, '', 'utf8'); 
+    logToFile('[MCP Server Log] Log file cleared/initialized.');
+} catch (err: any) { 
+    // Log critical startup error to stderr *only* if file logging setup failed
+    // This is a last resort and might still interfere, but necessary if logging isn't possible.
+    const errorMsg = `[MCP Startup Error] Failed to initialize log file at ${logFilePath}: ${err?.message || String(err)}`;
+    console.error(errorMsg); 
+    if (err instanceof Error && err.stack) {
+        console.error(err.stack);
+    }
+    process.exit(1); // Exit if we can't even log
+}
 
 // Add a global handler for uncaught exceptions
-process.on('uncaughtException', (error: Error) => { // Type error
-  logToFile('FATAL: Uncaught Exception: ' + (error?.message || String(error)));
-  if (error?.stack) {
-    logToFile('Stack Trace: ' + error.stack);
+process.on('uncaughtException', (err, origin) => {
+  let message = `[MCP Server Log] Uncaught Exception. Origin: ${origin}. Error: ${err?.message || String(err)}`;
+  logToFile(message);
+  if (err && err.stack) {
+    logToFile(err.stack);
   }
-  process.exit(1); // Ensure process exits on uncaught exceptions
+  // Optionally add more context
+  logToFile('[MCP Server Log] Exiting due to uncaught exception.');
+  process.exit(1); // Exit cleanly
 });
 
 logToFile('[MCP Server Log] Initializing GitHub Actions MCP Server...');
@@ -220,18 +239,26 @@ try {
     await server.connect(transport);
     logToFile('[MCP Server Log] Connected via stdio transport.');
 } catch (error: any) {
+    // Ensure fatal errors during server setup are logged to the file.
     logToFile(`[MCP Server Log] FATAL Error during server setup: ${error?.message || String(error)}`);
     if (error instanceof Error && error.stack) {
         logToFile(error.stack);
     }
+    // Do NOT use console.error here as it will interfere with MCP stdio
     process.exit(1);
 }
 
 // Add other process event handlers
+
+// Catch unhandled promise rejections, log them to file, and exit gracefully.
 process.on('unhandledRejection', (reason, promise) => {
-  logToFile(`[MCP Server Log] Unhandled Rejection at: ${promise}, reason: ${reason}`);
-  // Consider exiting or logging more details
-  // process.exit(1);
+  // Log unhandled promise rejections to the file.
+  let reasonStr = reason instanceof Error ? reason.message : String(reason);
+  // Including stack trace if available
+  let stack = reason instanceof Error ? `\nStack: ${reason.stack}` : '';
+  logToFile(`[MCP Server Log] Unhandled Rejection at: ${promise}, reason: ${reasonStr}${stack}`);
+  // Consider exiting depending on the severity or application logic
+  // process.exit(1); // Optionally exit
 });
 
 process.on('SIGINT', () => {
