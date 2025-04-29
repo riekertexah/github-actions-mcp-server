@@ -1,40 +1,121 @@
-#!/usr/bin/env node
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import { z } from 'zod';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"; // Use McpServer
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"; // Transport for Windsurf
+import { 
+    CallToolRequestSchema, 
+    ListToolsRequestSchema 
+} from "@modelcontextprotocol/sdk/types.js"; 
+import { z } from 'zod'; 
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
+// Restore GitHub specific imports
+import { Octokit } from "@octokit/rest";
 import * as actions from './operations/actions.js';
-import {
-  GitHubError,
-  GitHubValidationError,
-  GitHubResourceNotFoundError,
-  GitHubAuthenticationError,
-  GitHubPermissionError,
-  GitHubRateLimitError,
-  GitHubConflictError,
-  GitHubTimeoutError,
-  GitHubNetworkError,
-  isGitHubError,
+import { 
+    GitHubError, 
+    isGitHubError, 
+    GitHubValidationError,
+    GitHubResourceNotFoundError,
+    GitHubAuthenticationError,
+    GitHubPermissionError,
+    GitHubRateLimitError,
+    GitHubConflictError,
+    GitHubTimeoutError,
+    GitHubNetworkError,
 } from './common/errors.js';
 import { VERSION } from "./common/version.js";
 
-const server = new Server(
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const logFilePath = path.join(__dirname, '..', 'dist', 'mcp-startup.log'); // Ensure log path points to dist
+
+// Simple file logger
+function logToFile(message: string) {
+  const timestamp = new Date().toISOString();
+  try {
+    // Ensure dist directory exists before logging
+    const logDir = path.dirname(logFilePath);
+    if (!fs.existsSync(logDir)){
+        fs.mkdirSync(logDir, { recursive: true });
+    }
+    fs.appendFileSync(logFilePath, `[${timestamp}] ${message}\n`, 'utf8');
+  } catch (err: any) { // Use any for broader catch
+    const errorMsg = `[File Log Error] Failed to write to ${logFilePath}: ${err?.message || String(err)}`;
+    console.error(errorMsg);
+    if (err instanceof Error && err.stack) { // Check if error has stack
+      console.error(err.stack);
+    }
+    console.error(`[Original Message] ${message}`);
+  }
+}
+
+// Clear log file on startup
+// Ensure dist directory exists before logging
+const logDir = path.dirname(logFilePath);
+try {
+    if (!fs.existsSync(logDir)){
+        fs.mkdirSync(logDir, { recursive: true });
+    }
+    fs.writeFileSync(logFilePath, '', 'utf8'); 
+    logToFile('[MCP Server Log] Log file cleared/initialized.');
+} catch (err: any) { 
+    // Log critical startup error to stderr *only* if file logging setup failed
+    // This is a last resort and might still interfere, but necessary if logging isn't possible.
+    const errorMsg = `[MCP Startup Error] Failed to initialize log file at ${logFilePath}: ${err?.message || String(err)}`;
+    console.error(errorMsg); 
+    if (err instanceof Error && err.stack) {
+        console.error(err.stack);
+    }
+    process.exit(1); // Exit if we can't even log
+}
+
+// Add a global handler for uncaught exceptions
+process.on('uncaughtException', (err, origin) => {
+  let message = `[MCP Server Log] Uncaught Exception. Origin: ${origin}. Error: ${err?.message || String(err)}`;
+  logToFile(message);
+  if (err && err.stack) {
+    logToFile(err.stack);
+  }
+  // Optionally add more context
+  logToFile('[MCP Server Log] Exiting due to uncaught exception.');
+  process.exit(1); // Exit cleanly
+});
+
+logToFile('[MCP Server Log] Initializing GitHub Actions MCP Server...');
+
+// Restore auth logic
+// Allow token via CLI argument `--token=<token>` or fallback to env var
+let cliToken: string | undefined;
+for (const arg of process.argv) {
+  if (arg.startsWith('--token=')) {
+    cliToken = arg.substring('--token='.length);
+    break;
+  }
+}
+
+const GITHUB_TOKEN = cliToken || process.env.GITHUB_PERSONAL_ACCESS_TOKEN; // Restore env check
+if (!GITHUB_TOKEN) {
+  logToFile('FATAL: GITHUB_PERSONAL_ACCESS_TOKEN environment variable is not set.');
+  process.exit(1);
+}
+logToFile('[MCP Server Log] GitHub token found.'); // Restore original log message
+const octokit = new Octokit({ auth: GITHUB_TOKEN });
+logToFile('[MCP Server Log] Octokit initialized.');
+
+const server = new McpServer(
   {
     name: "github-actions-mcp-server",
-    version: VERSION,
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
+    version: VERSION, 
+    context: {
+      octokit: octokit
+    }
   }
 );
 
+// Restore error formatting function
 function formatGitHubError(error: GitHubError): string {
   let message = `GitHub API Error: ${error.message}`;
   
@@ -62,202 +143,132 @@ function formatGitHubError(error: GitHubError): string {
   return message;
 }
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "list_workflows",
-        description: "List workflows in a GitHub repository",
-        inputSchema: zodToJsonSchema(actions.ListWorkflowsSchema),
-      },
-      {
-        name: "get_workflow",
-        description: "Get details of a specific workflow",
-        inputSchema: zodToJsonSchema(actions.GetWorkflowSchema),
-      },
-      {
-        name: "get_workflow_usage",
-        description: "Get usage statistics of a workflow",
-        inputSchema: zodToJsonSchema(actions.GetWorkflowUsageSchema),
-      },
-      {
-        name: "list_workflow_runs",
-        description: "List all workflow runs for a repository or a specific workflow",
-        inputSchema: zodToJsonSchema(actions.ListWorkflowRunsSchema),
-      },
-      {
-        name: "get_workflow_run",
-        description: "Get details of a specific workflow run",
-        inputSchema: zodToJsonSchema(actions.GetWorkflowRunSchema),
-      },
-      {
-        name: "get_workflow_run_jobs",
-        description: "Get jobs for a specific workflow run",
-        inputSchema: zodToJsonSchema(actions.GetWorkflowRunJobsSchema),
-      },
-      {
-        name: "trigger_workflow",
-        description: "Trigger a workflow run",
-        inputSchema: zodToJsonSchema(actions.TriggerWorkflowSchema),
-      },
-      {
-        name: "cancel_workflow_run",
-        description: "Cancel a workflow run",
-        inputSchema: zodToJsonSchema(actions.CancelWorkflowRunSchema),
-      },
-      {
-        name: "rerun_workflow",
-        description: "Re-run a workflow run",
-        inputSchema: zodToJsonSchema(actions.RerunWorkflowSchema),
-      },
-    ],
-  };
-});
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  try {
-    if (!request.params.arguments) {
-      throw new Error("Arguments are required");
+// Restore ListTools using server.tool()
+server.tool(
+    "list_workflows",
+    actions.ListWorkflowsSchema.shape,
+    async (request: any) => {
+      logToFile('[MCP Server Log] Received list_workflows request (via server.tool)');
+      // Args are already parsed by the McpServer using the provided schema
+      const result = await actions.listWorkflows(request.owner, request.repo, request.page, request.perPage);
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
+);
 
-    switch (request.params.name) {
-      case "list_workflows": {
-        const args = actions.ListWorkflowsSchema.parse(request.params.arguments);
-        const result = await actions.listWorkflows(
-          args.owner,
-          args.repo,
-          args.page,
-          args.perPage
-        );
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
-      }
-      
-      case "get_workflow": {
-        const args = actions.GetWorkflowSchema.parse(request.params.arguments);
-        const result = await actions.getWorkflow(
-          args.owner,
-          args.repo,
-          args.workflowId
-        );
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
-      }
-      
-      case "get_workflow_usage": {
-        const args = actions.GetWorkflowUsageSchema.parse(request.params.arguments);
-        const result = await actions.getWorkflowUsage(
-          args.owner,
-          args.repo,
-          args.workflowId
-        );
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
-      }
-      
-      case "list_workflow_runs": {
-        const args = actions.ListWorkflowRunsSchema.parse(request.params.arguments);
-        const { owner, repo, workflowId, ...options } = args;
-        const result = await actions.listWorkflowRuns(owner, repo, {
-          workflowId,
-          ...options
-        });
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
-      }
-      
-      case "get_workflow_run": {
-        const args = actions.GetWorkflowRunSchema.parse(request.params.arguments);
-        const result = await actions.getWorkflowRun(
-          args.owner,
-          args.repo,
-          args.runId
-        );
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
-      }
-      
-      case "get_workflow_run_jobs": {
-        const args = actions.GetWorkflowRunJobsSchema.parse(request.params.arguments);
-        const { owner, repo, runId, filter, page, perPage } = args;
-        const result = await actions.getWorkflowRunJobs(
-          owner,
-          repo,
-          runId,
-          filter,
-          page,
-          perPage
-        );
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
-      }
-      
-      case "trigger_workflow": {
-        const args = actions.TriggerWorkflowSchema.parse(request.params.arguments);
-        const { owner, repo, workflowId, ref, inputs } = args;
-        const result = await actions.triggerWorkflow(
-          owner,
-          repo,
-          workflowId,
-          ref,
-          inputs
-        );
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
-      }
-      
-      case "cancel_workflow_run": {
-        const args = actions.CancelWorkflowRunSchema.parse(request.params.arguments);
-        const result = await actions.cancelWorkflowRun(
-          args.owner,
-          args.repo,
-          args.runId
-        );
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
-      }
-      
-      case "rerun_workflow": {
-        const args = actions.RerunWorkflowSchema.parse(request.params.arguments);
-        const result = await actions.rerunWorkflowRun(
-          args.owner,
-          args.repo,
-          args.runId
-        );
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
-      }
+// Register other tools using server.tool()
+server.tool(
+    "get_workflow",
+    actions.GetWorkflowSchema.shape,
+    async (request: any) => {
+        const result = await actions.getWorkflow(request.owner, request.repo, request.workflowId);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
 
-      default:
-        throw new Error(`Unknown tool: ${request.params.name}`);
+server.tool(
+    "get_workflow_usage",
+    actions.GetWorkflowUsageSchema.shape,
+    async (request: any) => {
+        const result = await actions.getWorkflowUsage(request.owner, request.repo, request.workflowId);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new Error(`Invalid input: ${JSON.stringify(error.errors)}`);
-    }
-    if (isGitHubError(error)) {
-      throw new Error(formatGitHubError(error));
-    }
-    throw error;
-  }
-});
+);
 
-async function runServer() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("GitHub Actions MCP Server running on stdio");
+server.tool(
+    "list_workflow_runs",
+    actions.ListWorkflowRunsSchema.shape,
+    async (request: any) => {
+        const { owner, repo, workflowId, ...options } = request;
+        const result = await actions.listWorkflowRuns(owner, repo, { workflowId, ...options });
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
+
+server.tool(
+    "get_workflow_run",
+    actions.GetWorkflowRunSchema.shape,
+    async (request: any) => {
+        const result = await actions.getWorkflowRun(request.owner, request.repo, request.runId);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
+
+server.tool(
+    "get_workflow_run_jobs",
+    actions.GetWorkflowRunJobsSchema.shape,
+    async (request: any) => {
+        const { owner, repo, runId, filter, page, perPage } = request;
+        const result = await actions.getWorkflowRunJobs(owner, repo, runId, filter, page, perPage);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
+
+server.tool(
+    "trigger_workflow",
+    actions.TriggerWorkflowSchema.shape,
+    async (request: any) => {
+        const { owner, repo, workflowId, ref, inputs } = request;
+        const result = await actions.triggerWorkflow(owner, repo, workflowId, ref, inputs);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
+
+server.tool(
+    "cancel_workflow_run",
+    actions.CancelWorkflowRunSchema.shape,
+    async (request: any) => {
+        const result = await actions.cancelWorkflowRun(request.owner, request.repo, request.runId);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
+
+server.tool(
+    "rerun_workflow",
+    actions.RerunWorkflowSchema.shape,
+    async (request: any) => {
+        const result = await actions.rerunWorkflowRun(request.owner, request.repo, request.runId);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
+
+// Wrap server logic in a try/catch for initialization errors
+try {
+    logToFile('[MCP Server Log] Server initialization complete. Ready for connection.');
+    // Attach stdio transport so Windsurf can communicate
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    logToFile('[MCP Server Log] Connected via stdio transport.');
+} catch (error: any) {
+    // Ensure fatal errors during server setup are logged to the file.
+    logToFile(`[MCP Server Log] FATAL Error during server setup: ${error?.message || String(error)}`);
+    if (error instanceof Error && error.stack) {
+        logToFile(error.stack);
+    }
+    // Do NOT use console.error here as it will interfere with MCP stdio
+    process.exit(1);
 }
 
-runServer().catch((error) => {
-  console.error("Fatal error in main():", error);
-  process.exit(1);
+// Add other process event handlers
+
+// Catch unhandled promise rejections, log them to file, and exit gracefully.
+process.on('unhandledRejection', (reason, promise) => {
+  // Log unhandled promise rejections to the file.
+  let reasonStr = reason instanceof Error ? reason.message : String(reason);
+  // Including stack trace if available
+  let stack = reason instanceof Error ? `\nStack: ${reason.stack}` : '';
+  logToFile(`[MCP Server Log] Unhandled Rejection at: ${promise}, reason: ${reasonStr}${stack}`);
+  // Consider exiting depending on the severity or application logic
+  // process.exit(1); // Optionally exit
+});
+
+process.on('SIGINT', () => {
+  logToFile('[MCP Server Log] Received SIGINT. Exiting gracefully.');
+  // Add any cleanup logic here
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  logToFile('[MCP Server Log] Received SIGTERM. Exiting gracefully.');
+  // Add any cleanup logic here
+  process.exit(0);
 });
