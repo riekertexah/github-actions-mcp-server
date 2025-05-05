@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/ko1ynnky-github-actions-mcp-server-badge.png)](https://mseep.ai/app/ko1ynnky-github-actions-mcp-server)
+
 # GitHub Actions MCP Server
 
 MCP Server for the GitHub Actions API, enabling AI assistants to manage and operate GitHub Actions workflows. Compatible with multiple AI coding assistants including Claude Desktop, Codeium, and Windsurf.
