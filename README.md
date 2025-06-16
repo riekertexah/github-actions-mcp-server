@@ -4,6 +4,8 @@
 
 [![smithery badge](https://smithery.ai/badge/@ko1ynnky/github-actions-mcp-server)](https://smithery.ai/server/@ko1ynnky/github-actions-mcp-server)
 
+> **⚠️ Archive Notice**: This repository will be archived soon as the official GitHub MCP server is adding Actions support. See [github/github-mcp-server#491](https://github.com/github/github-mcp-server/pull/491) for details on the official implementation.
+
 MCP Server for the GitHub Actions API, enabling AI assistants to manage and operate GitHub Actions workflows. Compatible with multiple AI coding assistants including Claude Desktop, Codeium, and Windsurf.
 
 ### Features
