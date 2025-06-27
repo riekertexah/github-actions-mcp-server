@@ -105,6 +105,28 @@ MCP Server for the GitHub Actions API, enabling AI assistants to manage and oper
      - `runId` (number): The ID of the workflow run
    - Returns: Status of the re-run operation
 
+10. `get_workflow_yaml`
+    - Fetch the raw YAML content of a workflow file from a GitHub repository.
+    - Inputs:
+      - `owner` (string): Repository owner (username or organization)
+      - `repo` (string): Repository name
+      - `workflowId` (string): The workflow file name, e.g. `runner.yaml`
+    - Returns:
+      - The raw YAML content as a string.
+
+    _Implemented in [`actions.ts`](src/operations/actions.ts), registered in [`index.ts`](src/index.ts)_
+
+11. `get_workflow_dispatch_inputs`
+    - Parse a workflow YAML file and return all input parameters defined under `on.workflow_dispatch.inputs`.
+    - Inputs:
+      - `owner` (string): Repository owner (username or organization)
+      - `repo` (string): Repository name
+      - `workflowId` (string): The workflow file name, e.g. `runner.yaml`
+    - Returns:
+      - An array of input objects, each with `name`, `description`, `required`, `default`, etc.
+
+    _Implemented in [`actions.ts`](src/operations/actions.ts), registered in [`index.ts`](src/index.ts)_
+
 ### Usage with AI Coding Assistants
 
 This MCP server is compatible with multiple AI coding assistants including Claude Desktop, Codeium, and Windsurf.
