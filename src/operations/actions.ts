@@ -8,6 +8,7 @@ import {
   WorkflowSchema,
   WorkflowUsageSchema
 } from "../common/types.js";
+import yaml from 'js-yaml';
 
 /**
  * Schema definitions
@@ -82,6 +83,19 @@ export const CancelWorkflowRunSchema = z.object({
 
 // Rerun workflow schema
 export const RerunWorkflowSchema = CancelWorkflowRunSchema;
+
+// Get workflow YAML
+export const GetWorkflowYamlSchema = z.object({
+  owner: z.string().describe("Repository owner (username or organization)"),
+  repo: z.string().describe("Repository name"),
+  workflowId: z.string().describe("The workflow file name, e.g. runner.yaml"),
+});
+
+export const GetWorkflowDispatchInputsSchema = z.object({
+  owner: z.string().describe("Repository owner (username or organization)"),
+  repo: z.string().describe("Repository name"),
+  workflowId: z.string().describe("The workflow file name, e.g. runner.yaml"),
+});
 
 /**
  * Function implementations
@@ -274,4 +288,58 @@ export async function rerunWorkflowRun(
 
   // This endpoint doesn't return any data on success
   return { success: true, message: `Workflow run ${runId} restarted` };
+}
+
+// Get workflow YAML
+export async function getWorkflowYaml(
+  owner: string,
+  repo: string,
+  workflowId: string
+) {
+  owner = validateOwnerName(owner);
+  repo = validateRepositoryName(repo);
+  // Assume workflowId is the file name, e.g. runner.yaml
+  const path = `.github/workflows/${workflowId}`;
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`;
+  const response = await githubRequest(url, {
+    headers: { Accept: 'application/vnd.github.v3.raw' }
+  });
+  // If githubRequest returns the raw YAML, just return it as a string
+  return { yaml: typeof response === 'string' ? response : JSON.stringify(response) };
+}
+
+export async function getWorkflowDispatchInputs(
+  owner: string,
+  repo: string,
+  workflowId: string
+) {
+  // Fetch the raw YAML
+  const { yaml: yamlContent } = await getWorkflowYaml(owner, repo, workflowId);
+  // Parse YAML
+  let doc: any;
+  try {
+    doc = yaml.load(yamlContent);
+  } catch (e) {
+    return { error: 'Failed to parse workflow YAML', details: String(e) };
+  }
+  // Find workflow_dispatch inputs
+  let inputs = undefined;
+  if (doc && doc.on && doc.on.workflow_dispatch && doc.on.workflow_dispatch.inputs) {
+    inputs = doc.on.workflow_dispatch.inputs;
+  } else if (doc && doc.on && doc.on['workflow_dispatch'] && doc.on['workflow_dispatch'].inputs) {
+    // Handles both YAML key styles
+    inputs = doc.on['workflow_dispatch'].inputs;
+  }
+  if (!inputs) {
+    return { error: 'No workflow_dispatch inputs found in workflow YAML.' };
+  }
+  // Return as array of { name, ...metadata }
+  const result = Object.entries(inputs).map(([name, meta]) => {
+    if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+      return { name, ...meta };
+    } else {
+      return { name };
+    }
+  });
+  return { inputs: result };
 }

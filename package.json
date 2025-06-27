@@ -22,14 +22,16 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.12.1",
-    "@types/node": "22.15.29",
-    "node-fetch": "^3.3.2",
     "@octokit/rest": "^22.0.0",
+    "@types/node": "22.15.29",
+    "js-yaml": "^4.1.0",
+    "node-fetch": "^3.3.2",
     "universal-user-agent": "^7.0.3",
     "zod": "^3.25.46",
     "zod-to-json-schema": "^3.24.5"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "typescript": "^5.8.3"
   }
 }

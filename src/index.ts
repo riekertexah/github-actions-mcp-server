@@ -231,6 +231,24 @@ server.tool(
     }
 );
 
+server.tool(
+    "get_workflow_yaml",
+    actions.GetWorkflowYamlSchema.shape,
+    async (request: any) => {
+        const result = await actions.getWorkflowYaml(request.owner, request.repo, request.workflowId);
+        return { content: [{ type: "text", text: result.yaml }] };
+    }
+);
+
+server.tool(
+    "get_workflow_dispatch_inputs",
+    actions.GetWorkflowDispatchInputsSchema.shape,
+    async (request: any) => {
+        const result = await actions.getWorkflowDispatchInputs(request.owner, request.repo, request.workflowId);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
+
 // Wrap server logic in a try/catch for initialization errors
 try {
     logToFile('[MCP Server Log] Server initialization complete. Ready for connection.');
