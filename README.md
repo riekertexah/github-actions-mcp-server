@@ -1,3 +1,4 @@
+[![Verified on MseeP](https://mseep.ai/badge.svg)](https://mseep.ai/app/cad0f49e-1c4d-4ab1-97e4-2312da835454)
 [![MseeP.ai Security Assessment Badge](https://mseep.net/pr/ko1ynnky-github-actions-mcp-server-badge.png)](https://mseep.ai/app/ko1ynnky-github-actions-mcp-server)
 
 # GitHub Actions MCP Server
